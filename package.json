@@ -1,0 +1,9 @@
+{
+  "name": "site-with-commits",
+  "version": "1.0.0",
+  "description": "Static site that saves data.json to the repo via Netlify function",
+  "main": "netlify/functions/save.js",
+  "dependencies": {
+    "node-fetch": "^2.6.12"
+  }
+}
