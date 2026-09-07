@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Site with commits demo</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, Arial; max-width:900px; margin:40px auto; padding:0 20px; }
+    textarea { width:100%; height:320px; font-family: monospace; font-size:14px; }
+    .controls { margin-top:10px; }
+    button { margin-right:8px; padding:8px 12px; }
+    #status { margin-left:8px; color: #444; }
+    pre.commit { background:#f7f7f7; padding:8px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <h1>Editable page (saves to repo)</h1>
+  <p>Edit the content below and click Save — the site will commit data.json into this repository.</p>
+  <textarea id="content" placeholder="Type something..."></textarea>
+  <div class="controls">
+    <button id="save">Save</button>
+    <button id="load">Load latest from repo</button>
+    <button id="clear">Clear</button>
+    <span id="status"></span>
+  </div>
+  <h3>Last commit info</h3>
+  <pre id="commit" class="commit">(none)</pre>
+
+  <script>
+    // Change these if the repo is moved
+    const OWNER = 'jaden-Y1';
+    const REPO = 'site-with-commits';
+    const DATA_PATH = 'data.json';
+    const RAW_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/${DATA_PATH}`;
+    const CONTENT_URL = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(DATA_PATH)}`;
+
+    const contentEl = document.getElementById('content');
+    const statusEl = document.getElementById('status');
+    const commitEl = document.getElementById('commit');
+
+    function setStatus(t, ms) {
+      statusEl.textContent = t || '';
+      if (ms) setTimeout(() => statusEl.textContent = '', ms);
+    }
+
+    async function loadFromRepo() {
+      setStatus('Loading...');
+      try {
+        const res = await fetch(RAW_URL, { cache: 'no-store' });
+        if (!res.ok) {
+          if (res.status === 404) {
+            contentEl.value = '';
+            setStatus('No data.json in repo yet', 3000);
+            commitEl.textContent = '(no commit)';
+            return;
+          }
+          throw new Error('Fetch failed: ' + res.status);
+        }
+        const json = await res.json();
+        if (typeof json === 'object') {
+          contentEl.value = json.text ?? JSON.stringify(json, null, 2);
+        } else {
+          contentEl.value = String(json);
+        }
+
+        // Try to fetch commit info
+        try {
+          const info = await fetch(CONTENT_URL, { cache: 'no-store' });
+          if (info.ok) {
+            const infoJson = await info.json();
+            const commitSha = infoJson.sha?.slice(0,7) ?? 'unknown';
+            commitEl.textContent = `sha: ${commitSha}\npath: ${DATA_PATH}\nupdated: ${infoJson?.commit?.author?.date ?? infoJson?.last_modified ?? '-'} `;
+          }
+        } catch (e) {
+          // ignore
+        }
+
+        setStatus('Loaded', 1500);
+      } catch (err) {
+        console.error(err);
+        setStatus('Load error: ' + err.message, 4000);
+      }
+    }
+
+    async function saveToServer() {
+      setStatus('Saving...');
+      const payload = {
+        owner: OWNER,
+        repo: REPO,
+        path: DATA_PATH,
+        content: { text: contentEl.value }
+      };
+      // If you configure SITE_WRITE_KEY in Netlify and want write protection,
+      // set window.WRITE_KEY = '<your-write-key>' in the page (not recommended publically).
+      if (window.WRITE_KEY) payload.writeKey = window.WRITE_KEY;
+
+      try {
+        const res = await fetch('/.netlify/functions/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const j = await res.json();
+        if (!res.ok) {
+          throw new Error((j && j.message) ? j.message : JSON.stringify(j));
+        }
+        const sha = j.commit?.sha?.slice(0,7) ?? 'ok';
+        setStatus('Saved — commit: ' + sha, 4000);
+        commitEl.textContent = `sha: ${sha}`;
+      } catch (err) {
+        console.error(err);
+        setStatus('Save failed: ' + err.message, 5000);
+      }
+    }
+
+    document.getElementById('save').addEventListener('click', saveToServer);
+    document.getElementById('load').addEventListener('click', loadFromRepo);
+    document.getElementById('clear').addEventListener('click', () => {
+      contentEl.value = '';
+      setStatus('Cleared', 1500);
+    });
+
+    // autoload on open
+    loadFromRepo();
+  </script>
+</body>
+</html>
